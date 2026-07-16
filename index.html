@@ -2,225 +2,482 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, maximum-scale=1"
-  >
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Scan Barcode Barang</title>
 
-  <title>Scan Barcode</title>
-
-  <!-- Library resmi Telegram Mini App -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
-  <!-- Library ZXing Browser -->
-  <script src="https://unpkg.com/@zxing/browser@latest"></script>
+  <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
 
   <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
-      padding: 16px;
+      padding: 14px;
       font-family: Arial, sans-serif;
       background: var(--tg-theme-bg-color, #ffffff);
       color: var(--tg-theme-text-color, #111111);
     }
-
     h2 {
-      margin-top: 0;
+      margin: 4px 0 6px;
       text-align: center;
+      font-size: 21px;
     }
-
+    .hint {
+      margin: 0 0 12px;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.4;
+      color: var(--tg-theme-hint-color, #666666);
+    }
     #scanner-container {
       position: relative;
       width: 100%;
-      max-width: 500px;
+      max-width: 640px;
+      height: min(64vh, 520px);
+      min-height: 340px;
       margin: 0 auto;
       overflow: hidden;
-      border-radius: 12px;
+      border-radius: 14px;
       background: #000;
     }
-
     #video {
       display: block;
       width: 100%;
-      min-height: 300px;
+      height: 100%;
       object-fit: cover;
+      background: #000;
     }
-
     #guide {
       position: absolute;
-      left: 10%;
-      right: 10%;
-      top: 42%;
-      height: 70px;
-      border: 3px solid #ffffff;
-      border-radius: 8px;
-      box-sizing: border-box;
+      left: 4%;
+      right: 4%;
+      top: 38%;
+      height: 112px;
+      border: 3px solid #fff;
+      border-radius: 10px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,.28), 0 0 14px rgba(255,255,255,.7);
       pointer-events: none;
     }
-
+    #scan-line {
+      position: absolute;
+      left: 7%;
+      right: 7%;
+      top: 50%;
+      height: 2px;
+      background: #ff3b30;
+      box-shadow: 0 0 8px #ff3b30;
+      pointer-events: none;
+      animation: scanMove 1.8s ease-in-out infinite alternate;
+    }
+    @keyframes scanMove {
+      from { transform: translateY(-42px); }
+      to { transform: translateY(42px); }
+    }
     #status {
-      margin: 16px 0;
+      min-height: 44px;
+      margin: 14px 0 8px;
       text-align: center;
       font-weight: bold;
+      line-height: 1.35;
     }
-
+    #details {
+      min-height: 20px;
+      margin-bottom: 8px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--tg-theme-hint-color, #666666);
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
     button {
       width: 100%;
-      padding: 14px;
-      margin-top: 10px;
+      min-height: 48px;
+      padding: 12px;
       border: 0;
-      border-radius: 10px;
-      font-size: 16px;
+      border-radius: 11px;
+      font-size: 15px;
+      font-weight: 700;
       cursor: pointer;
     }
-
+    button:disabled { opacity: .55; cursor: not-allowed; }
     #startButton {
+      grid-column: 1 / -1;
       background: var(--tg-theme-button-color, #2481cc);
-      color: var(--tg-theme-button-text-color, #ffffff);
+      color: var(--tg-theme-button-text-color, #fff);
     }
-
-    #cancelButton {
-      background: #dddddd;
-      color: #222222;
+    #torchButton, #switchButton {
+      background: var(--tg-theme-secondary-bg-color, #e9eef3);
+      color: var(--tg-theme-text-color, #111);
     }
+    #closeButton {
+      grid-column: 1 / -1;
+      background: #d8d8d8;
+      color: #222;
+    }
+    .success { color: #20a34a; }
+    .error { color: #d93025; }
   </style>
 </head>
-
 <body>
-  <h2>Scan Barcode Barang</h2>
+  <h2>📷 Scan Barcode Barang</h2>
+  <p class="hint">
+    Pegang HP horizontal untuk barcode panjang. Pastikan seluruh barcode dan ruang kosong di kiri-kanannya terlihat.
+  </p>
 
   <div id="scanner-container">
-    <video id="video" playsinline></video>
+    <video id="video" playsinline muted></video>
     <div id="guide"></div>
+    <div id="scan-line"></div>
   </div>
 
-  <div id="status">
-    Tekan tombol Mulai Scan.
+  <div id="status">Tekan tombol Mulai Scan.</div>
+  <div id="details"></div>
+
+  <div class="controls">
+    <button id="startButton">Mulai Scan</button>
+    <button id="torchButton" disabled>🔦 Lampu</button>
+    <button id="switchButton" disabled>🔄 Ganti Kamera</button>
+    <button id="closeButton">Tutup</button>
   </div>
-
-  <button id="startButton">
-    Mulai Scan
-  </button>
-
-  <button id="cancelButton">
-    Tutup
-  </button>
 
   <script>
-    const telegram = window.Telegram.WebApp;
-    telegram.ready();
-    telegram.expand();
+    'use strict';
+
+    const telegram = window.Telegram && window.Telegram.WebApp
+      ? window.Telegram.WebApp
+      : null;
+
+    if (telegram) {
+      telegram.ready();
+      telegram.expand();
+    }
 
     const videoElement = document.getElementById('video');
     const statusElement = document.getElementById('status');
+    const detailsElement = document.getElementById('details');
     const startButton = document.getElementById('startButton');
-    const cancelButton = document.getElementById('cancelButton');
+    const torchButton = document.getElementById('torchButton');
+    const switchButton = document.getElementById('switchButton');
+    const closeButton = document.getElementById('closeButton');
 
-    const codeReader =
-      new ZXingBrowser.BrowserMultiFormatReader();
+    const zxReader = new ZXingBrowser.BrowserMultiFormatReader();
 
     let scannerControls = null;
+    let currentStream = null;
+    let currentDeviceId = null;
+    let videoDevices = [];
+    let currentDeviceIndex = 0;
     let resultAlreadySent = false;
+    let torchEnabled = false;
+    let nativeDetector = null;
+    let nativeLoopActive = false;
+
+    const preferredNativeFormats = [
+      'code_128', 'code_39', 'code_93', 'ean_13', 'ean_8',
+      'upc_a', 'upc_e', 'itf', 'codabar', 'data_matrix',
+      'pdf417', 'qr_code'
+    ];
+
+    function setStatus(message, type) {
+      statusElement.textContent = message;
+      statusElement.classList.remove('success', 'error');
+      if (type) statusElement.classList.add(type);
+    }
+
+    function setDetails(message) {
+      detailsElement.textContent = message || '';
+    }
+
+    async function listCameras() {
+      const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+      videoDevices = devices || [];
+      switchButton.disabled = videoDevices.length < 2;
+      return videoDevices;
+    }
+
+    function chooseBackCameraIndex(devices) {
+      if (!devices.length) return 0;
+      const index = devices.findIndex(function(device) {
+        return /back|rear|environment|belakang/i.test(device.label || '');
+      });
+      return index >= 0 ? index : devices.length - 1;
+    }
+
+    function buildVideoConstraints(deviceId) {
+      const video = {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30, max: 60 }
+      };
+
+      if (deviceId) video.deviceId = { exact: deviceId };
+      else video.facingMode = { ideal: 'environment' };
+
+      return { audio: false, video };
+    }
 
     async function startScanner() {
-      resultAlreadySent = false;
-      statusElement.textContent =
-        'Arahkan kamera ke barcode garis.';
+      await stopScanner();
 
+      resultAlreadySent = false;
       startButton.disabled = true;
       startButton.textContent = 'Scanner aktif...';
+      setStatus('Arahkan kamera ke barcode.', '');
+      setDetails('Mencoba kamera belakang dan fokus otomatis.');
 
       try {
-        const devices =
-          await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+        const devices = await listCameras();
 
-        if (!devices || devices.length === 0) {
-          throw new Error('Kamera tidak ditemukan.');
+        if (devices.length > 0) {
+          currentDeviceIndex = chooseBackCameraIndex(devices);
+          currentDeviceId = devices[currentDeviceIndex].deviceId;
         }
 
-        /*
-         * Umumnya kamera terakhir adalah kamera belakang.
-         * Pada sebagian perangkat urutannya bisa berbeda.
-         */
-        const selectedDeviceId =
-          devices[devices.length - 1].deviceId;
+        const constraints = buildVideoConstraints(currentDeviceId);
+        const nativeStarted = await tryStartNativeDetector(constraints);
 
-        scannerControls =
-          await codeReader.decodeFromVideoDevice(
-            selectedDeviceId,
-            videoElement,
-            function(result, error, controls) {
-              if (result && !resultAlreadySent) {
-                resultAlreadySent = true;
-
-                const barcodeText =
-                  result.getText().trim();
-
-                statusElement.textContent =
-                  'Barcode terbaca: ' + barcodeText;
-
-                controls.stop();
-
-                sendBarcodeToTelegram(barcodeText);
-              }
-
-              /*
-               * Error NotFound normal terjadi selama barcode
-               * belum terbaca, jadi tidak perlu ditampilkan.
-               */
-            }
-          );
-
+        if (!nativeStarted) {
+          await startZxingScanner(constraints);
+          setDetails('Mesin scanner: ZXing');
+        }
       } catch (error) {
         console.error(error);
-
-        statusElement.textContent =
-          'Gagal membuka kamera: ' + error.message;
-
+        setStatus('Gagal membuka kamera: ' + (error.message || error), 'error');
+        setDetails('Pastikan Telegram memiliki izin kamera dan halaman dibuka dari tombol Scan Barcode.');
         startButton.disabled = false;
         startButton.textContent = 'Coba Lagi';
       }
     }
 
-    function sendBarcodeToTelegram(barcodeText) {
-      if (!barcodeText) {
-        statusElement.textContent =
-          'Barcode kosong atau tidak valid.';
+    async function tryStartNativeDetector(constraints) {
+      if (!('BarcodeDetector' in window)) return false;
+
+      try {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        const formats = preferredNativeFormats.filter(function(format) {
+          return supported.includes(format);
+        });
+
+        if (formats.length === 0) return false;
+
+        nativeDetector = new window.BarcodeDetector({ formats });
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        videoElement.srcObject = currentStream;
+        await videoElement.play();
+        prepareTrackControls();
+
+        nativeLoopActive = true;
+        setDetails('Mesin scanner: Native BarcodeDetector • Format: ' + formats.join(', '));
+        nativeDetectLoop();
+        return true;
+      } catch (error) {
+        console.warn('Native detector gagal, memakai ZXing.', error);
+
+        if (currentStream) {
+          currentStream.getTracks().forEach(function(track) { track.stop(); });
+          currentStream = null;
+        }
+
+        videoElement.srcObject = null;
+        nativeDetector = null;
+        nativeLoopActive = false;
+        return false;
+      }
+    }
+
+    async function nativeDetectLoop() {
+      if (!nativeLoopActive || !nativeDetector || resultAlreadySent) return;
+
+      try {
+        if (videoElement.readyState >= 2) {
+          const results = await nativeDetector.detect(videoElement);
+          if (results && results.length > 0) {
+            const first = results[0];
+            handleDecodedResult(first.rawValue, first.format || 'unknown');
+            return;
+          }
+        }
+      } catch (error) {
+        console.debug('Frame belum terbaca.', error);
+      }
+
+      requestAnimationFrame(nativeDetectLoop);
+    }
+
+    async function startZxingScanner(constraints) {
+      scannerControls = await zxReader.decodeFromConstraints(
+        constraints,
+        videoElement,
+        function(result, error, controls) {
+          if (result && !resultAlreadySent) {
+            let format = 'unknown';
+            try { format = String(result.getBarcodeFormat()); } catch (ignored) {}
+            handleDecodedResult(result.getText(), format);
+          }
+        }
+      );
+
+      currentStream = videoElement.srcObject;
+      prepareTrackControls();
+    }
+
+    function handleDecodedResult(rawText, format) {
+      if (resultAlreadySent) return;
+
+      const barcodeText = String(rawText || '').trim();
+      if (!barcodeText) return;
+
+      resultAlreadySent = true;
+      setStatus('Barcode terbaca: ' + barcodeText, 'success');
+      setDetails('Format: ' + String(format || 'unknown'));
+      stopScanner(false);
+      sendBarcodeToTelegram(barcodeText, format);
+    }
+
+    function sendBarcodeToTelegram(barcodeText, format) {
+      if (!telegram || !telegram.sendData) {
+        setStatus('Halaman tidak dibuka sebagai Telegram Mini App.', 'error');
+        startButton.disabled = false;
+        startButton.textContent = 'Mulai Scan';
         return;
       }
 
       const payload = JSON.stringify({
         type: 'barcode',
-        value: barcodeText
+        value: barcodeText,
+        format: format || 'unknown'
       });
 
       telegram.sendData(payload);
-
-      /*
-       * Mini App ditutup setelah data terkirim.
-       */
-      setTimeout(function() {
-        telegram.close();
-      }, 300);
+      setTimeout(function() { telegram.close(); }, 700);
     }
 
-    function stopScanner() {
+    function prepareTrackControls() {
+      const stream = videoElement.srcObject;
+      if (!stream) {
+        torchButton.disabled = true;
+        return;
+      }
+
+      currentStream = stream;
+      const track = stream.getVideoTracks()[0];
+      if (!track) {
+        torchButton.disabled = true;
+        return;
+      }
+
+      const capabilities = typeof track.getCapabilities === 'function'
+        ? track.getCapabilities()
+        : {};
+
+      torchButton.disabled = !capabilities.torch;
+      const advanced = [];
+
+      if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+        advanced.push({ focusMode: 'continuous' });
+      }
+
+      if (capabilities.zoom && typeof capabilities.zoom.min === 'number') {
+        const targetZoom = Math.min(
+          capabilities.zoom.max,
+          Math.max(capabilities.zoom.min, 1.25)
+        );
+        advanced.push({ zoom: targetZoom });
+      }
+
+      if (advanced.length > 0) {
+        track.applyConstraints({ advanced }).catch(function(error) {
+          console.debug('Fokus/zoom tambahan tidak didukung.', error);
+        });
+      }
+    }
+
+    async function toggleTorch() {
+      const stream = videoElement.srcObject;
+      if (!stream) return;
+
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+
+      const capabilities = typeof track.getCapabilities === 'function'
+        ? track.getCapabilities()
+        : {};
+
+      if (!capabilities.torch) {
+        setStatus('Lampu kamera tidak didukung.', 'error');
+        return;
+      }
+
+      torchEnabled = !torchEnabled;
+
+      try {
+        await track.applyConstraints({ advanced: [{ torch: torchEnabled }] });
+        torchButton.textContent = torchEnabled ? '🔦 Matikan Lampu' : '🔦 Lampu';
+      } catch (error) {
+        torchEnabled = false;
+        console.error(error);
+        setStatus('Gagal mengaktifkan lampu.', 'error');
+      }
+    }
+
+    async function switchCamera() {
+      if (videoDevices.length < 2) return;
+      currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
+      currentDeviceId = videoDevices[currentDeviceIndex].deviceId;
+      await startScanner();
+    }
+
+    async function stopScanner(resetButtons = true) {
+      nativeLoopActive = false;
+      nativeDetector = null;
+
       if (scannerControls) {
-        scannerControls.stop();
+        try { scannerControls.stop(); } catch (ignored) {}
         scannerControls = null;
       }
 
-      codeReader.reset();
+      if (currentStream) {
+        currentStream.getTracks().forEach(function(track) { track.stop(); });
+        currentStream = null;
+      }
+
+      if (videoElement.srcObject) {
+        const stream = videoElement.srcObject;
+        if (stream && stream.getTracks) {
+          stream.getTracks().forEach(function(track) { track.stop(); });
+        }
+        videoElement.srcObject = null;
+      }
+
+      torchEnabled = false;
+      torchButton.textContent = '🔦 Lampu';
+      torchButton.disabled = true;
+
+      try { zxReader.reset(); } catch (ignored) {}
+
+      if (resetButtons) {
+        startButton.disabled = false;
+        startButton.textContent = 'Mulai Scan';
+      }
     }
 
     startButton.addEventListener('click', startScanner);
+    torchButton.addEventListener('click', toggleTorch);
+    switchButton.addEventListener('click', switchCamera);
 
-    cancelButton.addEventListener('click', function() {
-      stopScanner();
-      telegram.close();
+    closeButton.addEventListener('click', async function() {
+      await stopScanner();
+      if (telegram) telegram.close();
+      else window.close();
     });
 
-    window.addEventListener('beforeunload', stopScanner);
+    window.addEventListener('beforeunload', function() {
+      stopScanner(false);
+    });
   </script>
 </body>
 </html>
