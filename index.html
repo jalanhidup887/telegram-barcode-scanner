@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1"
+  >
+
+  <title>Scan Barcode</title>
+
+  <!-- Library resmi Telegram Mini App -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Library ZXing Browser -->
+  <script src="https://unpkg.com/@zxing/browser@latest"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: Arial, sans-serif;
+      background: var(--tg-theme-bg-color, #ffffff);
+      color: var(--tg-theme-text-color, #111111);
+    }
+
+    h2 {
+      margin-top: 0;
+      text-align: center;
+    }
+
+    #scanner-container {
+      position: relative;
+      width: 100%;
+      max-width: 500px;
+      margin: 0 auto;
+      overflow: hidden;
+      border-radius: 12px;
+      background: #000;
+    }
+
+    #video {
+      display: block;
+      width: 100%;
+      min-height: 300px;
+      object-fit: cover;
+    }
+
+    #guide {
+      position: absolute;
+      left: 10%;
+      right: 10%;
+      top: 42%;
+      height: 70px;
+      border: 3px solid #ffffff;
+      border-radius: 8px;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+
+    #status {
+      margin: 16px 0;
+      text-align: center;
+      font-weight: bold;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      margin-top: 10px;
+      border: 0;
+      border-radius: 10px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    #startButton {
+      background: var(--tg-theme-button-color, #2481cc);
+      color: var(--tg-theme-button-text-color, #ffffff);
+    }
+
+    #cancelButton {
+      background: #dddddd;
+      color: #222222;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Scan Barcode Barang</h2>
+
+  <div id="scanner-container">
+    <video id="video" playsinline></video>
+    <div id="guide"></div>
+  </div>
+
+  <div id="status">
+    Tekan tombol Mulai Scan.
+  </div>
+
+  <button id="startButton">
+    Mulai Scan
+  </button>
+
+  <button id="cancelButton">
+    Tutup
+  </button>
+
+  <script>
+    const telegram = window.Telegram.WebApp;
+    telegram.ready();
+    telegram.expand();
+
+    const videoElement = document.getElementById('video');
+    const statusElement = document.getElementById('status');
+    const startButton = document.getElementById('startButton');
+    const cancelButton = document.getElementById('cancelButton');
+
+    const codeReader =
+      new ZXingBrowser.BrowserMultiFormatReader();
+
+    let scannerControls = null;
+    let resultAlreadySent = false;
+
+    async function startScanner() {
+      resultAlreadySent = false;
+      statusElement.textContent =
+        'Arahkan kamera ke barcode garis.';
+
+      startButton.disabled = true;
+      startButton.textContent = 'Scanner aktif...';
+
+      try {
+        const devices =
+          await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+
+        if (!devices || devices.length === 0) {
+          throw new Error('Kamera tidak ditemukan.');
+        }
+
+        /*
+         * Umumnya kamera terakhir adalah kamera belakang.
+         * Pada sebagian perangkat urutannya bisa berbeda.
+         */
+        const selectedDeviceId =
+          devices[devices.length - 1].deviceId;
+
+        scannerControls =
+          await codeReader.decodeFromVideoDevice(
+            selectedDeviceId,
+            videoElement,
+            function(result, error, controls) {
+              if (result && !resultAlreadySent) {
+                resultAlreadySent = true;
+
+                const barcodeText =
+                  result.getText().trim();
+
+                statusElement.textContent =
+                  'Barcode terbaca: ' + barcodeText;
+
+                controls.stop();
+
+                sendBarcodeToTelegram(barcodeText);
+              }
+
+              /*
+               * Error NotFound normal terjadi selama barcode
+               * belum terbaca, jadi tidak perlu ditampilkan.
+               */
+            }
+          );
+
+      } catch (error) {
+        console.error(error);
+
+        statusElement.textContent =
+          'Gagal membuka kamera: ' + error.message;
+
+        startButton.disabled = false;
+        startButton.textContent = 'Coba Lagi';
+      }
+    }
+
+    function sendBarcodeToTelegram(barcodeText) {
+      if (!barcodeText) {
+        statusElement.textContent =
+          'Barcode kosong atau tidak valid.';
+        return;
+      }
+
+      const payload = JSON.stringify({
+        type: 'barcode',
+        value: barcodeText
+      });
+
+      telegram.sendData(payload);
+
+      /*
+       * Mini App ditutup setelah data terkirim.
+       */
+      setTimeout(function() {
+        telegram.close();
+      }, 300);
+    }
+
+    function stopScanner() {
+      if (scannerControls) {
+        scannerControls.stop();
+        scannerControls = null;
+      }
+
+      codeReader.reset();
+    }
+
+    startButton.addEventListener('click', startScanner);
+
+    cancelButton.addEventListener('click', function() {
+      stopScanner();
+      telegram.close();
+    });
+
+    window.addEventListener('beforeunload', stopScanner);
+  </script>
+</body>
+</html>
